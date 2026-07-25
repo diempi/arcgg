@@ -4,7 +4,7 @@ Auto-arbitrated esports prize pools on [Arc](https://arc.io), Circle's stablecoi
 Sponsors lock USDC upfront, results settle instantly into locked claims, winners withdraw
 after a clean challenge window.
 
-**Track:** DeFi · Build on Arc Hackathon (Encode, 2026)
+**Track:** DeFi · Programmable Money Hackathon — Build on Arc (Encode, 2026)
 
 ## The problem
 
