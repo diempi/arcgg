@@ -1,13 +1,38 @@
 # secrets
 .env
 .env.*
+!.env.example
 *.key
+*.pem
 
 # foundry
 contracts/out/
 contracts/cache/
 contracts/broadcast/
 
-# node (pour plus tard)
+# dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# next.js (frontend in app/)
 app/.next/
+app/out/
+app/build/
+app/coverage/
+
+# misc
+.DS_Store
+.vercel
+next-env.d.ts
+
+# debug
+*.dbg.json
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cursor
+.cursorignore
+.cursorindexingignore
