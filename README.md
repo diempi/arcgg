@@ -85,6 +85,11 @@ forge test             # 21 tests incl. 512-run fuzz on the payout invariant
 
 Deploy to Arc testnet ([faucet](https://faucet.circle.com), chain id `5042002`):
 
+## Deployed
+
+**Arc Testnet** (chain 5042002): [`0x12e780a6636Ca12520D5eF6e8933632877FdF453`](https://testnet.arcscan.app/address/0x12e780a6636Ca12520D5eF6e8933632877FdF453)
+
+
 ```bash
 cp .env.example .env   # add a TESTNET-ONLY private key
 source .env
@@ -96,7 +101,7 @@ forge script script/Deploy.s.sol --rpc-url arc_testnet --broadcast
 - [x] Vault state machine — complete, 21/21 tests green
 - [x] M-of-N arbiter attestation with cross-round replay protection
 - [x] Challenge bond mechanics + refund deadlines on every live state
-- [ ] Arc testnet deployment
+- [x] Arc testnet deployment
 - [ ] Minimal frontend (deposit / propose / withdraw)
 - [ ] Result-relay agent (Agentic track, stretch)
 - [ ] 3-min pitch video + deck
