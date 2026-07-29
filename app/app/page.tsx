@@ -16,11 +16,29 @@ import { vaultAbi, STATES, RAIL, type VaultState } from "@/lib/vault";
 import { fmtUsdc, shortAddr } from "@/lib/format";
 
 const vault = { address: VAULT_ADDRESS, abi: vaultAbi } as const;
+function useMounted() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted;
+}
+
+/** Indeterminate progress bar shown while a transaction is confirming. */
+function TxProgress({ label }: { label: string }) {
+  return (
+    <div className="mt-3">
+      <div className="h-1.5 overflow-hidden rounded-full bg-ink">
+        <div className="h-full w-1/3 animate-tx-slide rounded-full bg-gradient-to-r from-violet to-cyan" />
+      </div>
+      <p className="mt-1.5 text-xs text-mut">{label}</p>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
+  const mounted = useMounted();
   const { address, isConnected } = useAccount();
 
   const { data, refetch } = useReadContracts({
@@ -32,7 +50,7 @@ export default function Home() {
       { ...vault, functionName: "challengeBond" },
       { ...vault, functionName: "unclaimedTotal" },
     ],
-    query: { refetchInterval: 4000 },
+    query: { refetchInterval: 15000 },
   });
 
   const state = (data?.[0]?.result as number | undefined) ?? undefined;
@@ -60,7 +78,7 @@ export default function Home() {
         />
         <div className="flex flex-col gap-5">
           <SponsorPanel
-            enabled={stateName === "Created" && isConnected}
+            enabled={mounted && stateName === "Created" && isConnected}
             stateName={stateName}
             remaining={prizePool - deposited}
             onChanged={refetch}
@@ -93,7 +111,9 @@ export default function Home() {
 // Top bar
 // ─────────────────────────────────────────────────────────────
 function TopBar() {
-  const { address, isConnected } = useAccount();
+  const mounted = useMounted();
+  const { address, isConnected: connected } = useAccount();
+  const isConnected = mounted && connected;
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
 
@@ -116,7 +136,9 @@ function TopBar() {
         </button>
       ) : (
         <button
-          onClick={() => connect({ connector: connectors[0] })}
+          onClick={() =>
+            connect({ connector: connectors[0], chainId: arcTestnet.id })
+          }
           className="rounded-lg bg-violet px-4 py-2 text-sm font-semibold hover:opacity-90"
         >
           Connect wallet
@@ -267,7 +289,7 @@ function ChallengeCountdown({
         </p>
         <button
           onClick={() =>
-            writeContract({ ...vaultWrite, functionName: "finalize" })
+            writeContract({ ...vaultWrite, functionName: "finalize", chainId: arcTestnet.id })
           }
           disabled={isPending}
           className="mt-2 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-50"
@@ -313,11 +335,16 @@ function SponsorPanel({
   onChanged: () => void;
 }) {
   const [amount, setAmount] = useState("1");
+  const [confirmed, setConfirmed] = useState<string | null>(null);
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   useEffect(() => {
-    if (isSuccess) onChanged();
+    if (isSuccess) {
+      setConfirmed(amount);
+      onChanged();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess, onChanged]);
 
   return (
@@ -344,6 +371,7 @@ function SponsorPanel({
               ...vaultWrite,
               functionName: "deposit",
               value: parseEther(amount),
+              chainId: arcTestnet.id,
             })
           }
           className="flex-1 rounded-lg bg-violet px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
@@ -351,6 +379,13 @@ function SponsorPanel({
           {isPending || isLoading ? "Depositing…" : "Deposit USDC"}
         </button>
       </div>
+      {isPending && <TxProgress label="Confirm the deposit in your wallet…" />}
+      {isLoading && <TxProgress label="Depositing — waiting for on-chain confirmation…" />}
+      {isSuccess && confirmed && !isPending && !isLoading && (
+        <div className="mt-3 rounded-lg border border-cyan/40 bg-cyan/10 px-3 py-2 text-sm text-cyan">
+          ✓ Deposited {confirmed} USDC — locked in the pool.
+        </div>
+      )}
       {stateName === "Created" && (
         <p className="mt-2 text-xs text-mut">
           {fmtUsdc(remaining)} USDC still needed to fully fund the pool.
@@ -382,27 +417,29 @@ function WinnerPanel({
   stateName?: VaultState;
   onChanged: () => void;
 }) {
+  const mounted = useMounted();
   const { data: claim } = useReadContract({
     ...vault,
     functionName: "claim",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 4000 },
+    query: { enabled: !!address, refetchInterval: 15000 },
   });
   const { data: bondRefund } = useReadContract({
     ...vault,
     functionName: "bondRefund",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 8000 },
+    query: { enabled: !!address, refetchInterval: 30000 },
   });
   const { data: depositOf } = useReadContract({
     ...vault,
     functionName: "depositOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 8000 },
+    query: { enabled: !!address, refetchInterval: 30000 },
   });
 
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const [paidOut, setPaidOut] = useState<string | null>(null);
   useEffect(() => {
     if (isSuccess) onChanged();
   }, [isSuccess, onChanged]);
@@ -418,7 +455,7 @@ function WinnerPanel({
       <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
         YOUR CLAIM
       </h2>
-      {!address ? (
+      {!mounted || !address ? (
         <p className="mt-2 text-sm text-mut">
           Connect your wallet to see your claim.
         </p>
@@ -435,9 +472,10 @@ function WinnerPanel({
           )}
           <button
             disabled={!canWithdraw || isPending || isLoading}
-            onClick={() =>
-              writeContract({ ...vaultWrite, functionName: "withdraw" })
-            }
+            onClick={() => {
+              setPaidOut(fmtUsdc(myClaim));
+              writeContract({ ...vaultWrite, functionName: "withdraw", chainId: arcTestnet.id });
+            }}
             className="mt-4 w-full rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-40"
           >
             {isPending || isLoading
@@ -447,6 +485,14 @@ function WinnerPanel({
                 : "Withdraw (opens in Withdrawable)"}
           </button>
 
+          {isPending && <TxProgress label="Confirm in your wallet…" />}
+          {isLoading && <TxProgress label="Withdrawing — waiting for confirmation…" />}
+          {isSuccess && paidOut && !isPending && !isLoading && (
+            <div className="mt-3 rounded-lg border border-cyan/40 bg-cyan/10 px-3 py-2 text-sm text-cyan">
+              ✓ GG — {paidOut} USDC paid out to your wallet.
+            </div>
+          )}
+
           {myBond > 0n && (
             <button
               disabled={isPending || isLoading}
@@ -454,6 +500,7 @@ function WinnerPanel({
                 writeContract({
                   ...vaultWrite,
                   functionName: "claimBondRefund",
+                  chainId: arcTestnet.id,
                 })
               }
               className="mt-2 w-full rounded-lg border border-edge px-4 py-2 text-sm text-white hover:border-violet"
@@ -466,7 +513,7 @@ function WinnerPanel({
             <button
               disabled={isPending || isLoading}
               onClick={() =>
-                writeContract({ ...vaultWrite, functionName: "refund" })
+                writeContract({ ...vaultWrite, functionName: "refund", chainId: arcTestnet.id })
               }
               className="mt-2 w-full rounded-lg border border-edge px-4 py-2 text-sm text-white hover:border-violet"
             >

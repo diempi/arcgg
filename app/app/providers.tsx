@@ -9,7 +9,7 @@ import { useState } from "react";
 const config = createConfig({
   chains: [arcTestnet],
   connectors: [injected()],
-  transports: { [arcTestnet.id]: http() },
+  transports: { [arcTestnet.id]: http("/api/rpc", { batch: true }) },
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
