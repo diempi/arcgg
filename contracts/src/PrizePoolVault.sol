@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity ^0.8.24;
 
 import {ArbiterAttestation} from "./ArbiterAttestation.sol";
 import {RankMath} from "./RankMath.sol";
@@ -369,6 +369,41 @@ contract PrizePoolVault is ArbiterAttestation {
     // ─────────────────────────────────────────────────────────────
     function rankBps() external view returns (uint16[] memory) {
         return _rankBps;
+    }
+
+    /// @notice Full vault state in ONE eth_call. Public RPCs rate-limit request
+    ///         bursts, so a polling dashboard reads this instead of six getters.
+    function snapshot()
+        external
+        view
+        returns (
+            State state_,
+            uint256 prizePool_,
+            uint256 deposited_,
+            uint256 windowEndsAt_,
+            uint256 challengeBond_,
+            uint256 unclaimedTotal_,
+            uint256 resolutionRound_
+        )
+    {
+        return (
+            state,
+            prizePool,
+            deposited,
+            windowEndsAt,
+            challengeBond,
+            unclaimedTotal,
+            resolutionRound
+        );
+    }
+
+    /// @notice Everything the UI shows for one wallet, in ONE eth_call.
+    function snapshotFor(address who)
+        external
+        view
+        returns (uint256 claim_, uint256 bondRefund_, uint256 depositOf_)
+    {
+        return (claim[who], bondRefund[who], depositOf[who]);
     }
 
     function winners() external view returns (address[] memory) {

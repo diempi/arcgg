@@ -526,6 +526,78 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "snapshot",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "state_",
+        "type": "uint8",
+        "internalType": "enum PrizePoolVault.State"
+      },
+      {
+        "name": "prizePool_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deposited_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "windowEndsAt_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "challengeBond_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unclaimedTotal_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resolutionRound_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "snapshotFor",
+    "inputs": [
+      {
+        "name": "who",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "claim_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bondRefund_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositOf_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "state",
     "inputs": [],
     "outputs": [

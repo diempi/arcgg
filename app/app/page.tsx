@@ -6,7 +6,6 @@ import {
   useConnect,
   useDisconnect,
   useReadContract,
-  useReadContracts,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
@@ -41,23 +40,18 @@ export default function Home() {
   const mounted = useMounted();
   const { address, isConnected } = useAccount();
 
-  const { data, refetch } = useReadContracts({
-    contracts: [
-      { ...vault, functionName: "state" },
-      { ...vault, functionName: "prizePool" },
-      { ...vault, functionName: "deposited" },
-      { ...vault, functionName: "windowEndsAt" },
-      { ...vault, functionName: "challengeBond" },
-      { ...vault, functionName: "unclaimedTotal" },
-    ],
+  // One eth_call for the whole vault state (public RPCs rate-limit bursts).
+  const { data: snap, refetch } = useReadContract({
+    ...vault,
+    functionName: "snapshot",
     query: { refetchInterval: 15000 },
   });
 
-  const state = (data?.[0]?.result as number | undefined) ?? undefined;
-  const prizePool = (data?.[1]?.result as bigint | undefined) ?? 0n;
-  const deposited = (data?.[2]?.result as bigint | undefined) ?? 0n;
-  const windowEndsAt = (data?.[3]?.result as bigint | undefined) ?? 0n;
-  const unclaimedTotal = (data?.[5]?.result as bigint | undefined) ?? 0n;
+  const state = snap !== undefined ? Number(snap[0]) : undefined;
+  const prizePool = (snap?.[1] as bigint | undefined) ?? 0n;
+  const deposited = (snap?.[2] as bigint | undefined) ?? 0n;
+  const windowEndsAt = (snap?.[3] as bigint | undefined) ?? 0n;
+  const unclaimedTotal = (snap?.[5] as bigint | undefined) ?? 0n;
 
   const stateName: VaultState | undefined =
     state !== undefined ? STATES[state] : undefined;
@@ -418,23 +412,12 @@ function WinnerPanel({
   onChanged: () => void;
 }) {
   const mounted = useMounted();
-  const { data: claim } = useReadContract({
+  // One eth_call for everything this wallet can claim/reclaim/refund.
+  const { data: mine } = useReadContract({
     ...vault,
-    functionName: "claim",
+    functionName: "snapshotFor",
     args: address ? [address] : undefined,
     query: { enabled: !!address, refetchInterval: 15000 },
-  });
-  const { data: bondRefund } = useReadContract({
-    ...vault,
-    functionName: "bondRefund",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 30000 },
-  });
-  const { data: depositOf } = useReadContract({
-    ...vault,
-    functionName: "depositOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 30000 },
   });
 
   const { writeContract, data: hash, isPending, error } = useWriteContract();
@@ -444,9 +427,9 @@ function WinnerPanel({
     if (isSuccess) onChanged();
   }, [isSuccess, onChanged]);
 
-  const myClaim = (claim as bigint | undefined) ?? 0n;
-  const myBond = (bondRefund as bigint | undefined) ?? 0n;
-  const myDeposit = (depositOf as bigint | undefined) ?? 0n;
+  const myClaim = (mine?.[0] as bigint | undefined) ?? 0n;
+  const myBond = (mine?.[1] as bigint | undefined) ?? 0n;
+  const myDeposit = (mine?.[2] as bigint | undefined) ?? 0n;
   const canWithdraw = stateName === "Withdrawable" && myClaim > 0n;
   const canRefund = stateName === "Cancelled" && myDeposit > 0n;
 

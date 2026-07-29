@@ -16,4 +16,4 @@ export const arcTestnet = defineChain({
   testnet: true,
 });
 
-export const VAULT_ADDRESS = "0x12e780a6636Ca12520D5eF6e8933632877FdF453" as const;
+export const VAULT_ADDRESS = "0xbCAce0C49cf272786005217BbE457196F73AB628" as const;

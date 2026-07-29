@@ -53,6 +53,9 @@ Key mechanics:
 - **Exact accounting** — `RankMath` splits the pool by rank with integer-division dust
   explicitly folded into 1st place; `sum(claims) == prizePool` is asserted on-chain and
   fuzz-proven off-chain.
+- **Single-call reads** — `snapshot()` / `snapshotFor(address)` return the whole vault and
+  per-wallet state in one `eth_call` each, so a polling dashboard stays friendly to
+  rate-limited public RPCs.
 
 ## Why Arc, specifically
 
@@ -63,15 +66,27 @@ Key mechanics:
   the two decimal conventions is a silent 10^12 discrepancy, and this codebase treats that
   as a first-class design constraint rather than a footnote.
 
+## Deployed
+
+**Arc Testnet** (chain 5042002):
+
+- **Demo vault (current)** — snapshot views, 2-of-3 arbiter set, 120s challenge window for
+  demo takes:
+  [`0xbCAce0C49cf272786005217BbE457196F73AB628`](https://testnet.arcscan.app/address/0xbCAce0C49cf272786005217BbE457196F73AB628)
+- v1 (first deployment, kept for history):
+  [`0x12e780a6636Ca12520D5eF6e8933632877FdF453`](https://testnet.arcscan.app/address/0x12e780a6636Ca12520D5eF6e8933632877FdF453)
+
 ## Repository layout
 
 ```
 contracts/   Foundry project (Solidity 0.8.24, OpenZeppelin v5.6)
   src/       PrizePoolVault.sol · ArbiterAttestation.sol · RankMath.sol
-  test/      21 tests: state machine, bond mechanics, replay protection, fuzz invariants
-  script/    Deploy.s.sol (Arc testnet)
-app/         Next.js + Viem + Wagmi frontend        (in progress)
-agent/       Result-relay service (Node + Viem)      (in progress)
+  test/      22 tests: state machine, bond mechanics, replay protection, fuzz invariants
+  script/    Deploy.s.sol (Arc testnet, env-required demo params)
+app/         Next.js + Viem + Wagmi frontend — live state rail, sponsor & winner panels,
+             same-origin RPC proxy (Arc CORS + rate-limit friendly)
+demo/        Arbiter EIP-712 signing script + scene-by-scene demo runbook
+agent/       Result-relay service (Node + Viem)      (stretch, in progress)
 ```
 
 ## Run it
@@ -80,29 +95,32 @@ agent/       Result-relay service (Node + Viem)      (in progress)
 cd contracts
 forge install          # forge-std + openzeppelin-contracts v5.6
 forge build
-forge test             # 21 tests incl. 512-run fuzz on the payout invariant
+forge test             # 22 tests incl. 512-run fuzz on the payout invariant
 ```
 
 Deploy to Arc testnet ([faucet](https://faucet.circle.com), chain id `5042002`):
 
-## Deployed
-
-**Arc Testnet** (chain 5042002): [`0x12e780a6636Ca12520D5eF6e8933632877FdF453`](https://testnet.arcscan.app/address/0x12e780a6636Ca12520D5eF6e8933632877FdF453)
-
-
 ```bash
-cp .env.example .env   # add a TESTNET-ONLY private key
+cp .env.example .env   # TESTNET-ONLY private key + arbiter addresses + demo params
 source .env
 forge script script/Deploy.s.sol --rpc-url arc_testnet --broadcast
 ```
 
+Run the frontend:
+
+```bash
+cd app
+npm install
+npm run dev            # http://localhost:3000 — reads the vault via /api/rpc proxy
+```
+
 ## Status
 
-- [x] Vault state machine — complete, 21/21 tests green
+- [x] Vault state machine — complete, 22/22 tests green
 - [x] M-of-N arbiter attestation with cross-round replay protection
 - [x] Challenge bond mechanics + refund deadlines on every live state
-- [x] Arc testnet deployment
-- [ ] Minimal frontend (deposit / propose / withdraw)
+- [x] Arc testnet deployment (demo vault with real 2-of-3 arbiter set)
+- [x] Minimal frontend — live state rail, sponsor & winner panels, tx feedback
 - [ ] Result-relay agent (Agentic track, stretch)
 - [ ] 3-min pitch video + deck
 

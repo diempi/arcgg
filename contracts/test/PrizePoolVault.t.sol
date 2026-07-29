@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {PrizePoolVault} from "../src/PrizePoolVault.sol";
@@ -448,5 +448,44 @@ contract PrizePoolVaultTest is Test {
         vm.prank(admin);
         vm.expectRevert(PrizePoolVault.CancelNotAllowed.selector);
         vault.cancel("too late");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Aggregate views (single-eth_call reads for the frontend)
+    // ─────────────────────────────────────────────────────────────
+    function test_snapshotViewsMatchGetters() public {
+        _fund();
+        _register();
+
+        (
+            PrizePoolVault.State s,
+            uint256 pool,
+            uint256 dep,
+            ,
+            uint256 bond,
+            uint256 unclaimed,
+            uint256 round
+        ) = vault.snapshot();
+        assertEq(uint8(s), uint8(vault.state()));
+        assertEq(pool, POOL);
+        assertEq(dep, POOL);
+        assertEq(bond, BOND);
+        assertEq(unclaimed, 0);
+        assertEq(round, 0);
+
+        vm.prank(admin);
+        vault.goLive();
+        _propose(_ranking(p1, p2, p3));
+
+        (s, , , , , unclaimed, ) = vault.snapshot();
+        assertEq(uint8(s), uint8(PrizePoolVault.State.ResultProposed));
+        assertEq(unclaimed, POOL);
+
+        (uint256 c, uint256 br, uint256 d) = vault.snapshotFor(p1);
+        assertEq(c, vault.claim(p1));
+        assertEq(br, 0);
+        assertEq(d, 0);
+        (c, br, d) = vault.snapshotFor(sponsor1);
+        assertEq(d, 60 ether);
     }
 }
