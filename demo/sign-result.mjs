@@ -93,3 +93,15 @@ for (const s of signed) console.log("signer       :", s.signer);
 console.log();
 console.log("RANKED_ARG   :", `[${RANKED.join(",")}]`);
 console.log("SIGS_ARG     :", `[${signed.map((s) => s.signature).join(",")}]`);
+
+
+// Also write shell-sourceable exports so the propose step needs no copy-paste.
+import { writeFileSync } from "node:fs";
+writeFileSync(
+  "result-args.env",
+  `export RANKED_ARG='[${RANKED.join(",")}]'\n` +
+  `export SIGS_ARG='[${signed.map((s) => s.signature).join(",")}]'\n`
+);
+console.log();
+console.log("Wrote result-args.env — in contracts/, run:");
+console.log("  source ../demo/result-args.env && cast send $VAULT \"proposeResult(address[],bytes[])\" \"$RANKED_ARG\" \"$SIGS_ARG\" --private-key $PRIVATE_KEY --rpc-url $RPC");
