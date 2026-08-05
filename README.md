@@ -5,7 +5,7 @@ Sponsors lock USDC upfront, results settle instantly into locked claims, winners
 after a clean challenge window.
 
 **Track:** DeFi · Programmable Money Hackathon — Build on Arc (Encode, 2026)
-
+**Live demo:** https://arcgg-ten.vercel.app
 ## The problem
 
 In grassroots esports — especially across Africa's fast-growing competitive scene — prize
