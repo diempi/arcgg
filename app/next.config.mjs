@@ -9,6 +9,8 @@ const nextConfig = {
       "@x402/evm": false,
       "@x402/svm": false,
       "@x402/core": false,
+      "@react-native-async-storage/async-storage": false,
+      "pino-pretty": false,
     };
     return config;
   },

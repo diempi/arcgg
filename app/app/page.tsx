@@ -85,6 +85,8 @@ export default function Home() {
         </div>
       </div>
 
+      <RulesPanel />
+
       <footer className="mt-10 text-center text-xs text-mut">
         Vault{" "}
         <a
@@ -186,6 +188,112 @@ function StateRail({ current }: { current?: VaultState }) {
         {current === "Cancelled" && "Tournament cancelled. Depositors can pull their refunds below."}
       </p>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Rules panel — the judges and the rules, committed and inspectable
+// ─────────────────────────────────────────────────────────────
+function fmtDuration(sec: bigint): string {
+  const s = Number(sec);
+  if (s % 3600 === 0 && s >= 3600) return `${s / 3600}h`;
+  if (s % 60 === 0 && s >= 60) return `${s / 60}min`;
+  return `${s}s`;
+}
+
+function fmtDeadline(ts: bigint): string {
+  return new Date(Number(ts) * 1000).toLocaleString("en-GB", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function RulesPanel() {
+  const mounted = useMounted();
+  const { data: cfg } = useReadContract({
+    ...vault,
+    functionName: "config",
+    query: { staleTime: Infinity }, // committed at deployment — read once
+  });
+
+  if (!mounted || !cfg) return null;
+  const [admin, arbiters, threshold, rankBps, , fundingDeadline, resolutionDeadline, challengeWindow, challengeBond] = cfg;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold tracking-[0.2em] to-white text-mut">
+          TOURNAMENT RULES
+        </h2>
+        <span className="text-xs text-mut">
+          committed at deployment · immutable · verify before you deposit
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-5 md:grid-cols-3">
+        <div>
+          <p className="text-xs text-mut">
+            JUDGES —{" "}
+            <span className="font-semibold text-cyan">
+              {String(threshold)}-of-{arbiters.length} signatures required
+            </span>
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {arbiters.map((a) => (
+              <li key={a}>
+                <a
+                  className="font-display text-sm text-white hover:text-cyan"
+                  href={`${arcTestnet.blockExplorers.default.url}/address/${a}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {shortAddr(a)}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-mut">
+            No one outside this list can sign a result. The list can never change.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs text-mut">PRIZE SPLIT</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {rankBps.map((bps, i) => (
+              <span
+                key={i}
+                className="rounded-lg border border-edge px-3 py-1.5 font-display text-sm text-white"
+              >
+                {i + 1}
+                {i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"} ·{" "}
+                <span className="text-cyan">{Number(bps) / 100}%</span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-mut">
+            Sums to exactly 100% — rounding dust goes to 1st place.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs text-mut">DISPUTES & DEADLINES</p>
+          <p className="mt-2 text-sm text-white">
+            Challenge window:{" "}
+            <span className="font-display text-cyan">{fmtDuration(challengeWindow)}</span>
+            {" · "}bond:{" "}
+            <span className="font-display text-cyan">{fmtUsdc(challengeBond)} USDC</span>
+          </p>
+          <p className="mt-1.5 text-xs text-mut">
+            Funding by {fmtDeadline(fundingDeadline)} · result by {fmtDeadline(resolutionDeadline)}
+            {" "}— past a deadline, anyone can cancel and refunds open.
+          </p>
+          <p className="mt-1.5 text-xs text-mut">
+            Organizer: <span className="font-display">{shortAddr(admin)}</span> — can
+            never redirect a payout.
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 

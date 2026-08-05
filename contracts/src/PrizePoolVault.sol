@@ -397,6 +397,37 @@ contract PrizePoolVault is ArbiterAttestation {
         );
     }
 
+    /// @notice The full tournament configuration in ONE eth_call — the judges, the
+    ///         split, the deadlines, the bond. Committed at deployment, immutable, and
+    ///         inspectable by anyone BEFORE they deposit. Trust nothing; verify here.
+    function config()
+        external
+        view
+        returns (
+            address admin_,
+            address[] memory arbiters_,
+            uint256 threshold_,
+            uint16[] memory rankBps_,
+            uint256 prizePool_,
+            uint256 fundingDeadline_,
+            uint256 resolutionDeadline_,
+            uint256 challengeWindow_,
+            uint256 challengeBond_
+        )
+    {
+        return (
+            admin,
+            _arbiterList,
+            threshold,
+            _rankBps,
+            prizePool,
+            fundingDeadline,
+            resolutionDeadline,
+            challengeWindow,
+            challengeBond
+        );
+    }
+
     /// @notice Everything the UI shows for one wallet, in ONE eth_call.
     function snapshotFor(address who)
         external

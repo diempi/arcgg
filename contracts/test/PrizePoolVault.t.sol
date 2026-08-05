@@ -488,4 +488,31 @@ contract PrizePoolVaultTest is Test {
         (c, br, d) = vault.snapshotFor(sponsor1);
         assertEq(d, 60 ether);
     }
+
+    function test_configExposesJudgesAndRules() public view {
+        (
+            address admin_,
+            address[] memory arbs,
+            uint256 thr,
+            uint16[] memory bps,
+            uint256 pool,
+            uint256 fd,
+            uint256 rd,
+            uint256 cw,
+            uint256 cb
+        ) = vault.config();
+        assertEq(admin_, admin);
+        assertEq(arbs.length, 3);
+        assertEq(arbs[0], arb1);
+        assertEq(arbs[1], arb2);
+        assertEq(arbs[2], arb3);
+        assertEq(thr, 2);
+        assertEq(bps.length, 3);
+        assertEq(uint256(bps[0]), 6000);
+        assertEq(pool, POOL);
+        assertEq(fd, fundingDeadline);
+        assertEq(rd, resolutionDeadline);
+        assertEq(cw, WINDOW);
+        assertEq(cb, BOND);
+    }
 }

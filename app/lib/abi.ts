@@ -110,6 +110,19 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "arbiters",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "bondRefund",
     "inputs": [
       {
@@ -211,6 +224,59 @@ export const vaultAbi = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "config",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "admin_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "arbiters_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "threshold_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rankBps_",
+        "type": "uint16[]",
+        "internalType": "uint16[]"
+      },
+      {
+        "name": "prizePool_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fundingDeadline_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resolutionDeadline_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "challengeWindow_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "challengeBond_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",

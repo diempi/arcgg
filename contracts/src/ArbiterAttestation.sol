@@ -18,6 +18,7 @@ abstract contract ArbiterAttestation {
     using ECDSA for bytes32;
 
     mapping(address => bool) public isArbiter;
+    address[] internal _arbiterList; // enumerable copy, for transparency UIs
     uint256 public immutable arbiterCount; // N
     uint256 public immutable threshold; // M (constructor enforces M > N/2)
 
@@ -39,19 +40,20 @@ abstract contract ArbiterAttestation {
     error NotAnArbiter();
     error ThresholdNotMet();
 
-    constructor(address[] memory arbiters, uint256 _threshold, bytes32 _tournamentId) {
+    constructor(address[] memory arbiters_, uint256 _threshold, bytes32 _tournamentId) {
         if (_threshold == 0) revert ZeroThreshold();
-        if (_threshold > arbiters.length) revert ThresholdAboveN();
+        if (_threshold > arbiters_.length) revert ThresholdAboveN();
         // Honest-majority policy: a colluding minority can never forge a result.
-        if (_threshold * 2 <= arbiters.length) revert ThresholdNotMajority();
+        if (_threshold * 2 <= arbiters_.length) revert ThresholdNotMajority();
 
-        for (uint256 i = 0; i < arbiters.length; i++) {
-            address a = arbiters[i];
+        for (uint256 i = 0; i < arbiters_.length; i++) {
+            address a = arbiters_[i];
             if (a == address(0)) revert ZeroArbiter();
             if (isArbiter[a]) revert DuplicateArbiter();
             isArbiter[a] = true;
+            _arbiterList.push(a);
         }
-        arbiterCount = arbiters.length;
+        arbiterCount = arbiters_.length;
         threshold = _threshold;
         tournamentId = _tournamentId;
 
@@ -88,6 +90,12 @@ abstract contract ArbiterAttestation {
             count++;
         }
         if (count < threshold) revert ThresholdNotMet();
+    }
+
+    /// @notice The full arbiter set, in registration order. Anyone can inspect the
+    ///         judges before depositing a single cent.
+    function arbiters() external view returns (address[] memory) {
+        return _arbiterList;
     }
 
     /// @notice The exact digest an arbiter must sign for a given ranking and round.
