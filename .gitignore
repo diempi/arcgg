@@ -35,4 +35,5 @@ yarn-error.log*
 
 # Cursor
 .cursorignore
-.cursorindexingignoredemo/result-args.env
+.cursorindexingignore
+demo/result-args.env
