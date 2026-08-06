@@ -568,14 +568,7 @@ function DeadlineCountdown({
 
   const left = Number(target) - now;
   if (left <= 0) {
-    return (
-      <div className="mt-5 rounded-xl border border-danger/50 bg-ink p-4">
-        <p className="text-sm text-danger">
-          Deadline passed — anyone can now cancel this tournament and open
-          refunds.
-        </p>
-      </div>
-    );
+    return <DeadlineCancel vault={vault} />;
   }
 
   const d = Math.floor(left / 86400);
@@ -591,6 +584,46 @@ function DeadlineCountdown({
       <p className="text-xs tracking-[0.2em] text-mut">{label}</p>
       <p className="mt-1 font-display text-2xl font-bold text-white">{clock}</p>
       <p className="mt-1 text-xs text-mut">{hint}</p>
+    </div>
+  );
+}
+
+/** Shown once a deadline valve is open: the promise "anyone can cancel" as a button. */
+function DeadlineCancel({ vault }: { vault: VaultRef }) {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  return (
+    <div className="mt-5 rounded-xl border border-danger/50 bg-ink p-4">
+      <p className="text-sm text-danger">
+        Deadline passed — anyone can now cancel this tournament and open
+        refunds.
+      </p>
+      <button
+        disabled={isPending || isLoading || isSuccess}
+        onClick={() =>
+          writeContract({
+            ...vault,
+            functionName: "cancel",
+            args: ["deadline passed"],
+            chainId: arcTestnet.id,
+          })
+        }
+        className="mt-2 rounded-lg border border-danger px-4 py-2 text-sm font-semibold text-danger hover:bg-danger hover:text-ink disabled:opacity-50"
+      >
+        {isPending || isLoading
+          ? "Cancelling…"
+          : isSuccess
+            ? "Cancelled — refunds open below"
+            : "Cancel & open refunds"}
+      </button>
+      {isPending && <TxProgress label="Confirm in your wallet…" />}
+      {isLoading && <TxProgress label="Cancelling — waiting for confirmation…" />}
+      {error && (
+        <p className="mt-2 text-xs text-danger">
+          {(error as { shortMessage?: string }).shortMessage ?? error.message}
+        </p>
+      )}
     </div>
   );
 }
