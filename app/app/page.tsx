@@ -116,7 +116,7 @@ function TopBar({ showHome }: { showHome: boolean }) {
 // ─────────────────────────────────────────────────────────────
 const factory = { address: FACTORY_ADDRESS, abi: factoryAbi } as const;
 const FACTORY_UNSET =
-  FACTORY_ADDRESS === "0x0000000000000000000000000000000000000000";
+  (FACTORY_ADDRESS as string) === "0x0000000000000000000000000000000000000000";
 
 function Landing() {
   return (
