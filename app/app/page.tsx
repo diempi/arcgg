@@ -508,6 +508,8 @@ function VaultPanel({
         </div>
       </div>
 
+      <DeadlineCountdown vault={vault} stateName={stateName} />
+
       {stateName === "ResultProposed" && (
         <ChallengeCountdown
           vault={vault}
@@ -525,6 +527,71 @@ function VaultPanel({
         </p>
       )}
     </section>
+  );
+}
+
+/** Live countdown to the state's deadline valve — the "never frozen" guarantee, visible. */
+function DeadlineCountdown({
+  vault,
+  stateName,
+}: {
+  vault: VaultRef;
+  stateName?: VaultState;
+}) {
+  const { data: cfg } = useReadContract({
+    ...vault,
+    functionName: "config",
+    query: { staleTime: Infinity },
+  });
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    setNow(Math.floor(Date.now() / 1000));
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!cfg || now === null || !stateName) return null;
+
+  let target: bigint | null = null;
+  let label = "";
+  let hint = "";
+  if (stateName === "Created" || stateName === "Funded") {
+    target = cfg[5]; // fundingDeadline
+    label = "FUNDING CLOSES IN";
+    hint = "Pool must be funded and live by then — past it, anyone can cancel and refunds open.";
+  } else if (stateName === "Live" || stateName === "Challenged") {
+    target = cfg[6]; // resolutionDeadline
+    label = "RESULT DUE IN";
+    hint = "Judges must deliver a result by then — past it, anyone can cancel and refunds open.";
+  }
+  if (target === null) return null;
+
+  const left = Number(target) - now;
+  if (left <= 0) {
+    return (
+      <div className="mt-5 rounded-xl border border-danger/50 bg-ink p-4">
+        <p className="text-sm text-danger">
+          Deadline passed — anyone can now cancel this tournament and open
+          refunds.
+        </p>
+      </div>
+    );
+  }
+
+  const d = Math.floor(left / 86400);
+  const h = Math.floor((left % 86400) / 3600);
+  const m = Math.floor((left % 3600) / 60);
+  const s = left % 60;
+  const clock =
+    (d > 0 ? `${d}d ` : "") +
+    `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+
+  return (
+    <div className="mt-5 rounded-xl border border-edge bg-ink p-4">
+      <p className="text-xs tracking-[0.2em] text-mut">{label}</p>
+      <p className="mt-1 font-display text-2xl font-bold text-white">{clock}</p>
+      <p className="mt-1 text-xs text-mut">{hint}</p>
+    </div>
   );
 }
 
