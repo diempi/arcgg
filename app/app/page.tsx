@@ -9,12 +9,15 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { parseEther } from "viem";
-import { arcTestnet, VAULT_ADDRESS } from "@/lib/chain";
-import { vaultAbi, STATES, RAIL, type VaultState } from "@/lib/vault";
+import { parseEther, isAddress, getAddress, stringToHex, decodeEventLog } from "viem";
+import { arcTestnet } from "@/lib/chain";
+import { vaultAbi } from "@/lib/abi";
+import { FACTORY_ADDRESS, factoryAbi } from "@/lib/factory";
+import { STATES, RAIL, type VaultState } from "@/lib/vault";
 import { fmtUsdc, shortAddr } from "@/lib/format";
 
-const vault = { address: VAULT_ADDRESS, abi: vaultAbi } as const;
+type VaultRef = { address: `0x${string}`; abi: typeof vaultAbi };
+
 function useMounted() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -33,80 +36,37 @@ function TxProgress({ label }: { label: string }) {
   );
 }
 
+/** Active vault from ?vault=… — undefined while parsing, null on the landing page. */
+function useVaultAddress(): `0x${string}` | null | undefined {
+  const [addr, setAddr] = useState<`0x${string}` | null | undefined>(undefined);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("vault");
+    setAddr(p && isAddress(p) ? getAddress(p) : null);
+  }, []);
+  return addr;
+}
+
 // ─────────────────────────────────────────────────────────────
-// Page
+// Page shell
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
-  const mounted = useMounted();
-  const { address, isConnected } = useAccount();
-
-  // One eth_call for the whole vault state (public RPCs rate-limit bursts).
-  const { data: snap, refetch } = useReadContract({
-    ...vault,
-    functionName: "snapshot",
-    query: { refetchInterval: 15000 },
-  });
-
-  const state = snap !== undefined ? Number(snap[0]) : undefined;
-  const prizePool = (snap?.[1] as bigint | undefined) ?? 0n;
-  const deposited = (snap?.[2] as bigint | undefined) ?? 0n;
-  const windowEndsAt = (snap?.[3] as bigint | undefined) ?? 0n;
-  const unclaimedTotal = (snap?.[5] as bigint | undefined) ?? 0n;
-
-  const stateName: VaultState | undefined =
-    state !== undefined ? STATES[state] : undefined;
+  const vaultAddr = useVaultAddress();
 
   return (
     <main className="mx-auto max-w-5xl px-5 pb-20">
-      <TopBar />
-      <StateRail current={stateName} />
-
-      <div className="mt-6 grid gap-5 md:grid-cols-[1.4fr_1fr]">
-        <VaultPanel
-          stateName={stateName}
-          prizePool={prizePool}
-          deposited={deposited}
-          windowEndsAt={windowEndsAt}
-          unclaimedTotal={unclaimedTotal}
-          onChanged={refetch}
-        />
-        <div className="flex flex-col gap-5">
-          <SponsorPanel
-            enabled={mounted && stateName === "Created" && isConnected}
-            stateName={stateName}
-            remaining={prizePool - deposited}
-            onChanged={refetch}
-          />
-          <WinnerPanel
-            address={address}
-            stateName={stateName}
-            onChanged={refetch}
-          />
-        </div>
-      </div>
-
-      <RulesPanel />
-
-      <footer className="mt-10 text-center text-xs text-mut">
-        Vault{" "}
-        <a
-          className="text-cyan hover:underline"
-          href={`${arcTestnet.blockExplorers.default.url}/address/${VAULT_ADDRESS}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {shortAddr(VAULT_ADDRESS)}
-        </a>{" "}
-        on Arc Testnet · native USDC, 18 decimals · every state change is public
-      </footer>
+      <TopBar showHome={!!vaultAddr} />
+      {vaultAddr === undefined && (
+        <p className="mt-10 text-center text-sm text-mut">Loading…</p>
+      )}
+      {vaultAddr === null && <Landing />}
+      {vaultAddr && (
+        <TournamentView vault={{ address: vaultAddr, abi: vaultAbi }} />
+      )}
     </main>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Top bar
-// ─────────────────────────────────────────────────────────────
-function TopBar() {
+function TopBar({ showHome }: { showHome: boolean }) {
   const mounted = useMounted();
   const { address, isConnected: connected } = useAccount();
   const isConnected = mounted && connected;
@@ -115,12 +75,19 @@ function TopBar() {
 
   return (
     <header className="flex items-center justify-between py-6">
-      <div>
-        <span className="text-2xl font-bold">Arc</span>
-        <span className="text-2xl font-bold text-cyan">GG</span>
-        <span className="ml-3 hidden text-xs tracking-[0.25em] text-mut sm:inline">
+      <div className="flex items-baseline gap-3">
+        <a href="/" className="no-underline">
+          <span className="text-2xl font-bold text-white">Arc</span>
+          <span className="text-2xl font-bold text-cyan">GG</span>
+        </a>
+        <span className="hidden text-xs tracking-[0.25em] text-mut sm:inline">
           GG, GET PAID
         </span>
+        {showHome && (
+          <a href="/" className="ml-2 text-xs text-mut hover:text-cyan">
+            ← all tournaments
+          </a>
+        )}
       </div>
       {isConnected && address ? (
         <button
@@ -145,6 +112,311 @@ function TopBar() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Landing — tournament registry + self-service creation
+// ─────────────────────────────────────────────────────────────
+const factory = { address: FACTORY_ADDRESS, abi: factoryAbi } as const;
+const FACTORY_UNSET =
+  FACTORY_ADDRESS === "0x0000000000000000000000000000000000000000";
+
+function Landing() {
+  return (
+    <>
+      <section className="rounded-2xl border border-edge bg-card p-6">
+        <h1 className="text-xl font-bold text-white">
+          Trustless prize pools for esports tournaments
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm text-mut">
+          Sponsors lock USDC before play begins. Results are attested by an
+          M-of-N judge set. Winners withdraw after a clean challenge window —
+          and every rule is committed on-chain, inspectable before anyone
+          deposits a cent.
+        </p>
+      </section>
+      <TournamentList />
+      <CreateTournament />
+    </>
+  );
+}
+
+function TournamentList() {
+  const mounted = useMounted();
+  const { data: infos } = useReadContract({
+    ...factory,
+    functionName: "all",
+    query: { enabled: !FACTORY_UNSET, refetchInterval: 30000 },
+  });
+
+  return (
+    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
+      <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
+        TOURNAMENTS
+      </h2>
+      {FACTORY_UNSET ? (
+        <p className="mt-3 text-sm text-mut">
+          Factory not deployed yet — set FACTORY_ADDRESS in lib/factory.ts.
+        </p>
+      ) : !mounted || !infos ? (
+        <p className="mt-3 text-sm text-mut">Loading tournaments…</p>
+      ) : infos.length === 0 ? (
+        <p className="mt-3 text-sm text-mut">
+          No tournaments yet. Create the first one below.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-edge">
+          {[...infos].reverse().map((t) => (
+            <li key={t.vault}>
+              <a
+                href={`/?vault=${t.vault}`}
+                className="flex items-center justify-between py-3 hover:bg-ink/40"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-white">{t.name}</p>
+                  <p className="text-xs text-mut">
+                    by {shortAddr(t.organizer)} ·{" "}
+                    {new Date(Number(t.createdAt) * 1000).toLocaleDateString(
+                      "en-GB",
+                      { day: "2-digit", month: "short" },
+                    )}
+                  </p>
+                </div>
+                <span className="font-display text-xs text-cyan">
+                  {shortAddr(t.vault)} →
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const SPLIT_PRESETS: Record<string, number[]> = {
+  "Top 3 — 60 / 30 / 10": [6000, 3000, 1000],
+  "Top 3 — 50 / 30 / 20": [5000, 3000, 2000],
+  "Top 4 — 50 / 25 / 15 / 10": [5000, 2500, 1500, 1000],
+};
+
+function CreateTournament() {
+  const mounted = useMounted();
+  const { isConnected } = useAccount();
+  const [name, setName] = useState("");
+  const [pool, setPool] = useState("10");
+  const [arb1, setArb1] = useState("");
+  const [arb2, setArb2] = useState("");
+  const [arb3, setArb3] = useState("");
+  const [preset, setPreset] = useState(Object.keys(SPLIT_PRESETS)[0]);
+  const [fundingDays, setFundingDays] = useState("2");
+  const [resolutionDays, setResolutionDays] = useState("3");
+  const [windowMin, setWindowMin] = useState("2880"); // 48h default
+  const [bond, setBond] = useState("0.5");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading, data: receipt } = useWaitForTransactionReceipt({ hash });
+
+  // On success: pull the new vault address out of the TournamentCreated event.
+  useEffect(() => {
+    if (!receipt) return;
+    for (const log of receipt.logs) {
+      try {
+        const ev = decodeEventLog({ abi: factoryAbi, ...log });
+        if (ev.eventName === "TournamentCreated") {
+          window.location.href = `/?vault=${(ev.args as { vault: string }).vault}`;
+          return;
+        }
+      } catch {
+        /* not our event */
+      }
+    }
+  }, [receipt]);
+
+  function submit() {
+    setFormError(null);
+    const arbs = [arb1, arb2, arb3].map((a) => a.trim());
+    if (!name.trim()) return setFormError("Give the tournament a name.");
+    for (const a of arbs) {
+      if (!isAddress(a)) return setFormError(`Invalid judge address: ${a || "(empty)"}`);
+    }
+    if (new Set(arbs.map((a) => a.toLowerCase())).size !== 3)
+      return setFormError("Judges must be three distinct addresses.");
+
+    writeContract({
+      ...factory,
+      functionName: "createTournament",
+      chainId: arcTestnet.id,
+      args: [
+        {
+          name: name.trim(),
+          arbiters: arbs.map((a) => getAddress(a)),
+          threshold: 2n,
+          prizePool: parseEther(pool),
+          rankBps: SPLIT_PRESETS[preset],
+          fundingDuration: BigInt(Math.round(Number(fundingDays) * 86400)),
+          resolutionDuration: BigInt(Math.round(Number(resolutionDays) * 86400)),
+          challengeWindow: BigInt(Math.round(Number(windowMin) * 60)),
+          challengeBond: parseEther(bond),
+        },
+      ],
+    });
+  }
+
+  const field =
+    "w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm outline-none focus:border-violet";
+
+  return (
+    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
+      <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
+        CREATE A TOURNAMENT
+      </h2>
+      <p className="mt-2 text-sm text-mut">
+        One transaction deploys a dedicated vault. You become the organizer —
+        but the judges, the split and the deadlines are frozen the moment it
+        exists. You can never touch the pot.
+      </p>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="md:col-span-2">
+          <label className="text-xs text-mut">Tournament name</label>
+          <input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Lagos Winter Cup" />
+        </div>
+        <div>
+          <label className="text-xs text-mut">Prize pool (USDC)</label>
+          <input className={field} value={pool} onChange={(e) => setPool(e.target.value)} inputMode="decimal" />
+        </div>
+        <div>
+          <label className="text-xs text-mut">Prize split</label>
+          <select className={field} value={preset} onChange={(e) => setPreset(e.target.value)}>
+            {Object.keys(SPLIT_PRESETS).map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <label className="text-xs text-mut">
+            Judges — 3 wallets, 2 signatures required. Pick people your
+            community already trusts; the list can never change.
+          </label>
+          <div className="mt-1 grid gap-2 md:grid-cols-3">
+            <input className={field} value={arb1} onChange={(e) => setArb1(e.target.value)} placeholder="0x… judge 1" />
+            <input className={field} value={arb2} onChange={(e) => setArb2(e.target.value)} placeholder="0x… judge 2" />
+            <input className={field} value={arb3} onChange={(e) => setArb3(e.target.value)} placeholder="0x… judge 3" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-mut">Funding period (days)</label>
+          <input className={field} value={fundingDays} onChange={(e) => setFundingDays(e.target.value)} inputMode="decimal" />
+        </div>
+        <div>
+          <label className="text-xs text-mut">Play period (days)</label>
+          <input className={field} value={resolutionDays} onChange={(e) => setResolutionDays(e.target.value)} inputMode="decimal" />
+        </div>
+        <div>
+          <label className="text-xs text-mut">Challenge window (minutes)</label>
+          <input className={field} value={windowMin} onChange={(e) => setWindowMin(e.target.value)} inputMode="decimal" />
+        </div>
+        <div>
+          <label className="text-xs text-mut">Challenge bond (USDC)</label>
+          <input className={field} value={bond} onChange={(e) => setBond(e.target.value)} inputMode="decimal" />
+        </div>
+      </div>
+
+      <button
+        disabled={FACTORY_UNSET || !mounted || !isConnected || isPending || isLoading}
+        onClick={submit}
+        className="mt-4 rounded-lg bg-violet px-5 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+      >
+        {isPending || isLoading ? "Creating…" : "Create tournament"}
+      </button>
+      {!FACTORY_UNSET && mounted && !isConnected && (
+        <p className="mt-2 text-xs text-mut">Connect a wallet to create.</p>
+      )}
+      {isPending && <TxProgress label="Confirm in your wallet…" />}
+      {isLoading && <TxProgress label="Deploying your vault on Arc…" />}
+      {(formError || error) && (
+        <p className="mt-2 text-xs text-danger">
+          {formError ??
+            ((error as { shortMessage?: string })?.shortMessage || error?.message)}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tournament view — one vault
+// ─────────────────────────────────────────────────────────────
+function TournamentView({ vault }: { vault: VaultRef }) {
+  const mounted = useMounted();
+  const { address, isConnected } = useAccount();
+
+  // One eth_call for the whole vault state (public RPCs rate-limit bursts).
+  const { data: snap, refetch } = useReadContract({
+    ...vault,
+    functionName: "snapshot",
+    query: { refetchInterval: 15000 },
+  });
+
+  const state = snap !== undefined ? Number(snap[0]) : undefined;
+  const prizePool = (snap?.[1] as bigint | undefined) ?? 0n;
+  const deposited = (snap?.[2] as bigint | undefined) ?? 0n;
+  const windowEndsAt = (snap?.[3] as bigint | undefined) ?? 0n;
+  const unclaimedTotal = (snap?.[5] as bigint | undefined) ?? 0n;
+
+  const stateName: VaultState | undefined =
+    state !== undefined ? STATES[state] : undefined;
+
+  return (
+    <>
+      <StateRail current={stateName} />
+
+      <div className="mt-6 grid gap-5 md:grid-cols-[1.4fr_1fr]">
+        <VaultPanel
+          vault={vault}
+          stateName={stateName}
+          prizePool={prizePool}
+          deposited={deposited}
+          windowEndsAt={windowEndsAt}
+          unclaimedTotal={unclaimedTotal}
+          onChanged={refetch}
+        />
+        <div className="flex flex-col gap-5">
+          <SponsorPanel
+            vault={vault}
+            enabled={mounted && stateName === "Created" && isConnected}
+            stateName={stateName}
+            remaining={prizePool - deposited}
+            onChanged={refetch}
+          />
+          <WinnerPanel
+            vault={vault}
+            address={address}
+            stateName={stateName}
+            onChanged={refetch}
+          />
+        </div>
+      </div>
+
+      <AdminPanel vault={vault} stateName={stateName} onChanged={refetch} />
+      <RulesPanel vault={vault} />
+
+      <footer className="mt-10 text-center text-xs text-mut">
+        Vault{" "}
+        <a
+          className="text-cyan hover:underline"
+          href={`${arcTestnet.blockExplorers.default.url}/address/${vault.address}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {shortAddr(vault.address)}
+        </a>{" "}
+        on Arc Testnet · native USDC, 18 decimals · every state change is public
+      </footer>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Signature element: the state rail — the contract's state machine, live
 // ─────────────────────────────────────────────────────────────
 function StateRail({ current }: { current?: VaultState }) {
@@ -159,9 +431,7 @@ function StateRail({ current }: { current?: VaultState }) {
               <span
                 className={
                   "rounded-lg px-3 py-1.5 text-xs font-semibold " +
-                  (active
-                    ? "bg-cyan text-ink"
-                    : "border border-edge text-mut")
+                  (active ? "bg-cyan text-ink" : "border border-edge text-mut")
                 }
               >
                 {s}
@@ -192,115 +462,10 @@ function StateRail({ current }: { current?: VaultState }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Rules panel — the judges and the rules, committed and inspectable
-// ─────────────────────────────────────────────────────────────
-function fmtDuration(sec: bigint): string {
-  const s = Number(sec);
-  if (s % 3600 === 0 && s >= 3600) return `${s / 3600}h`;
-  if (s % 60 === 0 && s >= 60) return `${s / 60}min`;
-  return `${s}s`;
-}
-
-function fmtDeadline(ts: bigint): string {
-  return new Date(Number(ts) * 1000).toLocaleString("en-GB", {
-    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-  });
-}
-
-function RulesPanel() {
-  const mounted = useMounted();
-  const { data: cfg } = useReadContract({
-    ...vault,
-    functionName: "config",
-    query: { staleTime: Infinity }, // committed at deployment — read once
-  });
-
-  if (!mounted || !cfg) return null;
-  const [admin, arbiters, threshold, rankBps, , fundingDeadline, resolutionDeadline, challengeWindow, challengeBond] = cfg;
-
-  return (
-    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-xs font-semibold tracking-[0.2em] to-white text-mut">
-          TOURNAMENT RULES
-        </h2>
-        <span className="text-xs text-mut">
-          committed at deployment · immutable · verify before you deposit
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-5 md:grid-cols-3">
-        <div>
-          <p className="text-xs text-mut">
-            JUDGES —{" "}
-            <span className="font-semibold text-cyan">
-              {String(threshold)}-of-{arbiters.length} signatures required
-            </span>
-          </p>
-          <ul className="mt-2 space-y-1.5">
-            {arbiters.map((a) => (
-              <li key={a}>
-                <a
-                  className="font-display text-sm text-white hover:text-cyan"
-                  href={`${arcTestnet.blockExplorers.default.url}/address/${a}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {shortAddr(a)}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-mut">
-            No one outside this list can sign a result. The list can never change.
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs text-mut">PRIZE SPLIT</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {rankBps.map((bps, i) => (
-              <span
-                key={i}
-                className="rounded-lg border border-edge px-3 py-1.5 font-display text-sm text-white"
-              >
-                {i + 1}
-                {i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"} ·{" "}
-                <span className="text-cyan">{Number(bps) / 100}%</span>
-              </span>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-mut">
-            Sums to exactly 100% — rounding dust goes to 1st place.
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs text-mut">DISPUTES & DEADLINES</p>
-          <p className="mt-2 text-sm text-white">
-            Challenge window:{" "}
-            <span className="font-display text-cyan">{fmtDuration(challengeWindow)}</span>
-            {" · "}bond:{" "}
-            <span className="font-display text-cyan">{fmtUsdc(challengeBond)} USDC</span>
-          </p>
-          <p className="mt-1.5 text-xs text-mut">
-            Funding by {fmtDeadline(fundingDeadline)} · result by {fmtDeadline(resolutionDeadline)}
-            {" "}— past a deadline, anyone can cancel and refunds open.
-          </p>
-          <p className="mt-1.5 text-xs text-mut">
-            Organizer: <span className="font-display">{shortAddr(admin)}</span> — can
-            never redirect a payout.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
 // Vault panel — the money, made visible
 // ─────────────────────────────────────────────────────────────
 function VaultPanel({
+  vault,
   stateName,
   prizePool,
   deposited,
@@ -308,6 +473,7 @@ function VaultPanel({
   unclaimedTotal,
   onChanged,
 }: {
+  vault: VaultRef;
   stateName?: VaultState;
   prizePool: bigint;
   deposited: bigint;
@@ -315,8 +481,7 @@ function VaultPanel({
   unclaimedTotal: bigint;
   onChanged: () => void;
 }) {
-  const pct =
-    prizePool > 0n ? Number((deposited * 100n) / prizePool) : 0;
+  const pct = prizePool > 0n ? Number((deposited * 100n) / prizePool) : 0;
 
   return (
     <section className="rounded-2xl border border-edge bg-card p-6">
@@ -324,8 +489,7 @@ function VaultPanel({
         PRIZE POOL
       </h2>
       <p className="mt-2 font-display text-5xl font-bold text-white">
-        {fmtUsdc(prizePool)}{" "}
-        <span className="text-xl text-cyan">USDC</span>
+        {fmtUsdc(prizePool)} <span className="text-xl text-cyan">USDC</span>
       </p>
 
       <div className="mt-5">
@@ -344,7 +508,11 @@ function VaultPanel({
       </div>
 
       {stateName === "ResultProposed" && (
-        <ChallengeCountdown windowEndsAt={windowEndsAt} onElapsed={onChanged} />
+        <ChallengeCountdown
+          vault={vault}
+          windowEndsAt={windowEndsAt}
+          onElapsed={onChanged}
+        />
       )}
 
       {(stateName === "Withdrawable" || stateName === "Closed") && (
@@ -360,9 +528,11 @@ function VaultPanel({
 }
 
 function ChallengeCountdown({
+  vault,
   windowEndsAt,
   onElapsed,
 }: {
+  vault: VaultRef;
   windowEndsAt: bigint;
   onElapsed: () => void;
 }) {
@@ -391,7 +561,11 @@ function ChallengeCountdown({
         </p>
         <button
           onClick={() =>
-            writeContract({ ...vaultWrite, functionName: "finalize", chainId: arcTestnet.id })
+            writeContract({
+              ...vault,
+              functionName: "finalize",
+              chainId: arcTestnet.id,
+            })
           }
           disabled={isPending}
           className="mt-2 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-50"
@@ -423,14 +597,14 @@ function ChallengeCountdown({
 // ─────────────────────────────────────────────────────────────
 // Sponsor panel — deposit native USDC
 // ─────────────────────────────────────────────────────────────
-const vaultWrite = { address: VAULT_ADDRESS, abi: vaultAbi } as const;
-
 function SponsorPanel({
+  vault,
   enabled,
   stateName,
   remaining,
   onChanged,
 }: {
+  vault: VaultRef;
   enabled: boolean;
   stateName?: VaultState;
   remaining: bigint;
@@ -470,7 +644,7 @@ function SponsorPanel({
           disabled={!enabled || isPending || isLoading}
           onClick={() =>
             writeContract({
-              ...vaultWrite,
+              ...vault,
               functionName: "deposit",
               value: parseEther(amount),
               chainId: arcTestnet.id,
@@ -482,7 +656,9 @@ function SponsorPanel({
         </button>
       </div>
       {isPending && <TxProgress label="Confirm the deposit in your wallet…" />}
-      {isLoading && <TxProgress label="Depositing — waiting for on-chain confirmation…" />}
+      {isLoading && (
+        <TxProgress label="Depositing — waiting for on-chain confirmation…" />
+      )}
       {isSuccess && confirmed && !isPending && !isLoading && (
         <div className="mt-3 rounded-lg border border-cyan/40 bg-cyan/10 px-3 py-2 text-sm text-cyan">
           ✓ Deposited {confirmed} USDC — locked in the pool.
@@ -511,10 +687,12 @@ function SponsorPanel({
 // Winner panel — locked claim, then withdraw
 // ─────────────────────────────────────────────────────────────
 function WinnerPanel({
+  vault,
   address,
   stateName,
   onChanged,
 }: {
+  vault: VaultRef;
   address?: `0x${string}`;
   stateName?: VaultState;
   onChanged: () => void;
@@ -553,8 +731,7 @@ function WinnerPanel({
       ) : (
         <>
           <p className="mt-2 font-display text-4xl font-bold">
-            {fmtUsdc(myClaim)}{" "}
-            <span className="text-lg text-cyan">USDC</span>
+            {fmtUsdc(myClaim)} <span className="text-lg text-cyan">USDC</span>
           </p>
           {myClaim > 0n && stateName === "ResultProposed" && (
             <p className="mt-1 text-xs text-mut">
@@ -565,7 +742,11 @@ function WinnerPanel({
             disabled={!canWithdraw || isPending || isLoading}
             onClick={() => {
               setPaidOut(fmtUsdc(myClaim));
-              writeContract({ ...vaultWrite, functionName: "withdraw", chainId: arcTestnet.id });
+              writeContract({
+                ...vault,
+                functionName: "withdraw",
+                chainId: arcTestnet.id,
+              });
             }}
             className="mt-4 w-full rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-40"
           >
@@ -577,7 +758,9 @@ function WinnerPanel({
           </button>
 
           {isPending && <TxProgress label="Confirm in your wallet…" />}
-          {isLoading && <TxProgress label="Withdrawing — waiting for confirmation…" />}
+          {isLoading && (
+            <TxProgress label="Withdrawing — waiting for confirmation…" />
+          )}
           {isSuccess && paidOut && !isPending && !isLoading && (
             <div className="mt-3 rounded-lg border border-cyan/40 bg-cyan/10 px-3 py-2 text-sm text-cyan">
               ✓ GG — {paidOut} USDC paid out to your wallet.
@@ -589,7 +772,7 @@ function WinnerPanel({
               disabled={isPending || isLoading}
               onClick={() =>
                 writeContract({
-                  ...vaultWrite,
+                  ...vault,
                   functionName: "claimBondRefund",
                   chainId: arcTestnet.id,
                 })
@@ -604,7 +787,11 @@ function WinnerPanel({
             <button
               disabled={isPending || isLoading}
               onClick={() =>
-                writeContract({ ...vaultWrite, functionName: "refund", chainId: arcTestnet.id })
+                writeContract({
+                  ...vault,
+                  functionName: "refund",
+                  chainId: arcTestnet.id,
+                })
               }
               className="mt-2 w-full rounded-lg border border-edge px-4 py-2 text-sm text-white hover:border-violet"
             >
@@ -619,6 +806,248 @@ function WinnerPanel({
           )}
         </>
       )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Admin panel — organizer actions, only visible to the admin wallet
+// ─────────────────────────────────────────────────────────────
+function AdminPanel({
+  vault,
+  stateName,
+  onChanged,
+}: {
+  vault: VaultRef;
+  stateName?: VaultState;
+  onChanged: () => void;
+}) {
+  const mounted = useMounted();
+  const { address } = useAccount();
+  const { data: cfg } = useReadContract({
+    ...vault,
+    functionName: "config",
+    query: { staleTime: Infinity },
+  });
+
+  const [playerName, setPlayerName] = useState("");
+  const [playerWallet, setPlayerWallet] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [lastRegistered, setLastRegistered] = useState<string | null>(null);
+
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash });
+  useEffect(() => {
+    if (isSuccess) {
+      setLastRegistered(playerName || null);
+      setPlayerName("");
+      setPlayerWallet("");
+      onChanged();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess, onChanged]);
+
+  const isAdmin =
+    mounted && !!address && !!cfg && address.toLowerCase() === cfg[0].toLowerCase();
+  const registrationOpen = stateName === "Created" || stateName === "Funded";
+  if (!isAdmin || !registrationOpen) return null;
+
+  const field =
+    "w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm outline-none focus:border-violet";
+
+  function register() {
+    setFormError(null);
+    if (!playerName.trim()) return setFormError("Player name required.");
+    if (!isAddress(playerWallet.trim()))
+      return setFormError("Invalid player wallet address.");
+    writeContract({
+      ...vault,
+      functionName: "registerParticipant",
+      chainId: arcTestnet.id,
+      args: [
+        stringToHex(playerName.trim().slice(0, 31), { size: 32 }),
+        getAddress(playerWallet.trim()),
+      ],
+    });
+  }
+
+  return (
+    <section className="mt-5 rounded-2xl border border-violet/40 bg-card p-6">
+      <h2 className="text-xs font-semibold tracking-[0.2em] text-violet">
+        ORGANIZER — {stateName === "Funded" ? "roster & kickoff" : "roster"}
+      </h2>
+
+      {registrationOpen && (
+        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_2fr_auto]">
+          <input className={field} value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder="Player tag (e.g. alice)" />
+          <input className={field} value={playerWallet} onChange={(e) => setPlayerWallet(e.target.value)} placeholder="0x… payout wallet" />
+          <button
+            disabled={isPending || isLoading}
+            onClick={register}
+            className="rounded-lg bg-violet px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+          >
+            {isPending || isLoading ? "Registering…" : "Register player"}
+          </button>
+        </div>
+      )}
+      {isSuccess && lastRegistered && !isPending && !isLoading && (
+        <p className="mt-2 text-xs text-cyan">
+          ✓ {lastRegistered} registered — wallet locked before play.
+        </p>
+      )}
+
+      {stateName === "Funded" && (
+        <div className="mt-4 border-t border-edge pt-4">
+          <p className="text-sm text-mut">
+            Pool fully funded. Lock the roster and start the tournament:
+          </p>
+          <button
+            disabled={isPending || isLoading}
+            onClick={() =>
+              writeContract({
+                ...vault,
+                functionName: "goLive",
+                chainId: arcTestnet.id,
+              })
+            }
+            className="mt-2 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-40"
+          >
+            Go live →
+          </button>
+        </div>
+      )}
+
+      {(formError || error) && (
+        <p className="mt-2 text-xs text-danger">
+          {formError ??
+            ((error as { shortMessage?: string })?.shortMessage || error?.message)}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Rules panel — the judges and the rules, committed and inspectable
+// ─────────────────────────────────────────────────────────────
+function fmtDuration(sec: bigint): string {
+  const s = Number(sec);
+  if (s % 3600 === 0 && s >= 3600) return `${s / 3600}h`;
+  if (s % 60 === 0 && s >= 60) return `${s / 60}min`;
+  return `${s}s`;
+}
+
+function fmtDeadline(ts: bigint): string {
+  return new Date(Number(ts) * 1000).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function RulesPanel({ vault }: { vault: VaultRef }) {
+  const mounted = useMounted();
+  const { data: cfg } = useReadContract({
+    ...vault,
+    functionName: "config",
+    query: { staleTime: Infinity }, // committed at deployment — read once
+  });
+
+  if (!mounted || !cfg) return null;
+  const [
+    admin,
+    arbiters,
+    threshold,
+    rankBps,
+    ,
+    fundingDeadline,
+    resolutionDeadline,
+    challengeWindow,
+    challengeBond,
+  ] = cfg;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
+          TOURNAMENT RULES
+        </h2>
+        <span className="text-xs text-mut">
+          committed at deployment · immutable · verify before you deposit
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-5 md:grid-cols-3">
+        <div>
+          <p className="text-xs text-mut">
+            JUDGES —{" "}
+            <span className="font-semibold text-cyan">
+              {String(threshold)}-of-{arbiters.length} signatures required
+            </span>
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {arbiters.map((a) => (
+              <li key={a}>
+                <a
+                  className="font-display text-sm text-white hover:text-cyan"
+                  href={`${arcTestnet.blockExplorers.default.url}/address/${a}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {shortAddr(a)}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-mut">
+            No one outside this list can sign a result. The list can never
+            change.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs text-mut">PRIZE SPLIT</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {rankBps.map((bps, i) => (
+              <span
+                key={i}
+                className="rounded-lg border border-edge px-3 py-1.5 font-display text-sm text-white"
+              >
+                {i + 1}
+                {i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"} ·{" "}
+                <span className="text-cyan">{Number(bps) / 100}%</span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-mut">
+            Sums to exactly 100% — rounding dust goes to 1st place.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs text-mut">DISPUTES & DEADLINES</p>
+          <p className="mt-2 text-sm text-white">
+            Challenge window:{" "}
+            <span className="font-display text-cyan">
+              {fmtDuration(challengeWindow)}
+            </span>
+            {" · "}bond:{" "}
+            <span className="font-display text-cyan">
+              {fmtUsdc(challengeBond)} USDC
+            </span>
+          </p>
+          <p className="mt-1.5 text-xs text-mut">
+            Funding by {fmtDeadline(fundingDeadline)} · result by{" "}
+            {fmtDeadline(resolutionDeadline)} — past a deadline, anyone can
+            cancel and refunds open.
+          </p>
+          <p className="mt-1.5 text-xs text-mut">
+            Organizer: <span className="font-display">{shortAddr(admin)}</span>{" "}
+            — can never redirect a payout.
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
