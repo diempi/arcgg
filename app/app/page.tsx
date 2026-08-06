@@ -206,6 +206,28 @@ function CreateTournament() {
   const [arb2, setArb2] = useState("");
   const [arb3, setArb3] = useState("");
   const [preset, setPreset] = useState(Object.keys(SPLIT_PRESETS)[0]);
+  const [pcts, setPcts] = useState<string[]>(["60", "30", "10"]);
+
+  function applyPreset(name: string) {
+    setPreset(name);
+    const bps = SPLIT_PRESETS[name];
+    if (bps) setPcts(bps.map((b) => String(b / 100)));
+  }
+  function setPlaces(nRaw: string) {
+    const n = Math.max(1, Math.min(8, Math.round(Number(nRaw) || 0)));
+    setPreset("Custom");
+    setPcts((prev) => {
+      const next = prev.slice(0, n);
+      while (next.length < n) next.push("0");
+      return next;
+    });
+  }
+  function setPct(i: number, v: string) {
+    setPreset("Custom");
+    setPcts((prev) => prev.map((p, j) => (j === i ? v : p)));
+  }
+  const bpsFromPcts = pcts.map((p) => Math.round(Number(p || "0") * 100));
+  const bpsSum = bpsFromPcts.reduce((a, b) => a + b, 0);
   const [fundingDays, setFundingDays] = useState("2");
   const [resolutionDays, setResolutionDays] = useState("3");
   const [windowMin, setWindowMin] = useState("2880"); // 48h default
@@ -240,6 +262,12 @@ function CreateTournament() {
     }
     if (new Set(arbs.map((a) => a.toLowerCase())).size !== 3)
       return setFormError("Judges must be three distinct addresses.");
+    if (bpsFromPcts.some((b) => b <= 0))
+      return setFormError("Every paid place needs a share above 0%.");
+    if (bpsSum !== 10000)
+      return setFormError(
+        `Prize shares must sum to exactly 100% (currently ${bpsSum / 100}%).`,
+      );
 
     writeContract({
       ...factory,
@@ -251,7 +279,7 @@ function CreateTournament() {
           arbiters: arbs.map((a) => getAddress(a)),
           threshold: 2n,
           prizePool: parseEther(pool),
-          rankBps: SPLIT_PRESETS[preset],
+          rankBps: bpsFromPcts,
           fundingDuration: BigInt(Math.round(Number(fundingDays) * 86400)),
           resolutionDuration: BigInt(Math.round(Number(resolutionDays) * 86400)),
           challengeWindow: BigInt(Math.round(Number(windowMin) * 60)),
@@ -285,17 +313,55 @@ function CreateTournament() {
           <input className={field} value={pool} onChange={(e) => setPool(e.target.value)} inputMode="decimal" />
         </div>
         <div>
-          <label className="text-xs text-mut">Prize split</label>
-          <select className={field} value={preset} onChange={(e) => setPreset(e.target.value)}>
+          <label className="text-xs text-mut">Prize split preset</label>
+          <select
+            className={field}
+            value={preset}
+            onChange={(e) => applyPreset(e.target.value)}
+          >
             {Object.keys(SPLIT_PRESETS).map((k) => (
               <option key={k} value={k}>{k}</option>
             ))}
+            <option value="Custom">Custom…</option>
           </select>
         </div>
         <div className="md:col-span-2">
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="text-xs text-mut">Paid places (1–8)</label>
+              <input
+                className={field + " w-24"}
+                value={String(pcts.length)}
+                onChange={(e) => setPlaces(e.target.value)}
+                inputMode="numeric"
+              />
+            </div>
+            <p className={"pb-2 text-xs " + (bpsSum === 10000 ? "text-cyan" : "text-danger")}>
+              Total: {bpsSum / 100}% {bpsSum === 10000 ? "✓" : "— must be exactly 100%"}
+            </p>
+          </div>
+          <div className="mt-2 grid grid-cols-4 gap-2 md:grid-cols-8">
+            {pcts.map((p, i) => (
+              <div key={i}>
+                <label className="text-xs text-mut">
+                  {i + 1}
+                  {i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"} %
+                </label>
+                <input
+                  className={field}
+                  value={p}
+                  onChange={(e) => setPct(i, e.target.value)}
+                  inputMode="decimal"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="md:col-span-2">
           <label className="text-xs text-mut">
-            Judges — 3 wallets, 2 signatures required. Pick people your
-            community already trusts; the list can never change.
+            Judges (arbiters) — 3 wallets, 2 signatures required to attest results.
+            Independent from paid places. Pick people your community already
+            trusts; the list can never change.
           </label>
           <div className="mt-1 grid gap-2 md:grid-cols-3">
             <input className={field} value={arb1} onChange={(e) => setArb1(e.target.value)} placeholder="0x… judge 1" />
