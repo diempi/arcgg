@@ -9,7 +9,7 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { parseEther, isAddress, getAddress, stringToHex, decodeEventLog } from "viem";
+import { parseEther, isAddress, getAddress, stringToHex, hexToString, decodeEventLog } from "viem";
 import { arcTestnet } from "@/lib/chain";
 import { vaultAbi } from "@/lib/abi";
 import { FACTORY_ADDRESS, factoryAbi } from "@/lib/factory";
@@ -398,6 +398,7 @@ function TournamentView({ vault }: { vault: VaultRef }) {
       </div>
 
       <AdminPanel vault={vault} stateName={stateName} onChanged={refetch} />
+      <ParticipantsPanel vault={vault} />
       <RulesPanel vault={vault} />
 
       <footer className="mt-10 text-center text-xs text-mut">
@@ -923,6 +924,52 @@ function AdminPanel({
             ((error as { shortMessage?: string })?.shortMessage || error?.message)}
         </p>
       )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Participants panel — the roster, locked before play, public always
+// ─────────────────────────────────────────────────────────────
+function ParticipantsPanel({ vault }: { vault: VaultRef }) {
+  const mounted = useMounted();
+  const { data } = useReadContract({
+    ...vault,
+    functionName: "participants",
+    query: { refetchInterval: 15000 },
+  });
+
+  if (!mounted || !data) return null;
+  const [ids, wallets] = data;
+  if (ids.length === 0) return null;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
+      <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
+        PARTICIPANTS ({ids.length})
+      </h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {ids.map((id, i) => (
+          <a
+            key={id}
+            href={`${arcTestnet.blockExplorers.default.url}/address/${wallets[i]}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-edge px-3 py-1.5 text-sm hover:border-cyan"
+          >
+            <span className="font-semibold text-white">
+              {hexToString(id, { size: 32 }).replace(/\0+$/, "")}
+            </span>{" "}
+            <span className="font-display text-xs text-mut">
+              {shortAddr(wallets[i])}
+            </span>
+          </a>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-mut">
+        Payout wallets locked at registration — prizes can only ever reach
+        these addresses.
+      </p>
     </section>
   );
 }

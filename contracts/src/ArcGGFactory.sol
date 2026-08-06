@@ -9,7 +9,7 @@ import {PrizePoolVault} from "./PrizePoolVault.sol";
 ///         registry so UIs can list every tournament ever created.
 /// @dev The factory holds no funds and has no owner — it is pure deployment logic.
 ///      Each vault's rules (judges, split, deadlines) are frozen by its own
-///      constructor; the factory adds nothing an ^rganizer could abuse.
+///      constructor; the factory adds nothing an organizer could abuse.
 contract ArcGGFactory {
     struct TournamentInfo {
         address vault;

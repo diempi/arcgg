@@ -515,4 +515,15 @@ contract PrizePoolVaultTest is Test {
         assertEq(cw, WINDOW);
         assertEq(cb, BOND);
     }
+
+    function test_participantsViewListsRoster() public {
+        _register();
+        (bytes32[] memory ids, address[] memory wallets) = vault.participants();
+        assertEq(ids.length, 4);
+        assertEq(wallets.length, 4);
+        assertEq(ids[0], bytes32("p1"));
+        assertEq(wallets[0], p1);
+        assertEq(ids[3], bytes32("p4"));
+        assertEq(wallets[3], p4);
+    }
 }

@@ -65,7 +65,8 @@ contract PrizePoolVault is ArbiterAttestation {
     uint256 public deposited;
     mapping(address => uint256) public depositOf;
 
-    mapping(bytes32 => address) public participantWallet; // playerId => payout wallet
+    mapping(bytes32 => address) public participantWallet;
+    bytes32[] private _playerIds; // enumerable roster, for transparency UIs // playerId => payout wallet
     mapping(address => bool) public isParticipantWallet;
 
     mapping(address => uint256) public claim; // locked until Withdrawable
@@ -199,6 +200,7 @@ contract PrizePoolVault is ArbiterAttestation {
 
         participantWallet[playerId] = wallet;
         isParticipantWallet[wallet] = true;
+        _playerIds.push(playerId);
         emit ParticipantRegistered(playerId, wallet);
     }
 
@@ -395,6 +397,20 @@ contract PrizePoolVault is ArbiterAttestation {
             unclaimedTotal,
             resolutionRound
         );
+    }
+
+    /// @notice The full roster in ONE eth_call — every registered player and the
+    ///         exact wallet their prize can reach. Locked before play; public always.
+    function participants()
+        external
+        view
+        returns (bytes32[] memory ids, address[] memory wallets)
+    {
+        ids = _playerIds;
+        wallets = new address[](ids.length);
+        for (uint256 i = 0; i < ids.length; i++) {
+            wallets[i] = participantWallet[ids[i]];
+        }
     }
 
     /// @notice The full tournament configuration in ONE eth_call — the judges, the

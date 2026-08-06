@@ -429,6 +429,24 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "participants",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "ids",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "wallets",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "prizePool",
     "inputs": [],
     "outputs": [
