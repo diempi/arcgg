@@ -1093,6 +1093,11 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "TooFewParticipants",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "TooManyReResolutions",
     "inputs": []
   },

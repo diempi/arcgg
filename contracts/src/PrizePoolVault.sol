@@ -110,6 +110,7 @@ contract PrizePoolVault is ArbiterAttestation {
     error PlayerTaken();
     error WalletTaken();
     error RankedLengthMismatch();
+    error TooFewParticipants();
     error NotRegisteredWinner();
     error DeadlinePassed();
     error WindowClosed();
@@ -209,6 +210,9 @@ contract PrizePoolVault is ArbiterAttestation {
     // ─────────────────────────────────────────────────────────────
     function goLive() external onlyAdmin inState(State.Funded) {
         if (block.timestamp > fundingDeadline) revert DeadlinePassed();
+        // Every paid rank needs a registered player — a podium can't be emptier
+        // than the payout table it promises.
+        if (_playerIds.length < _rankBps.length) revert TooFewParticipants();
         state = State.Live;
         emit WentLive(prizePool);
     }

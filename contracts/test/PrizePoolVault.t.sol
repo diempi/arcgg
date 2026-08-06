@@ -526,4 +526,18 @@ contract PrizePoolVaultTest is Test {
         assertEq(ids[3], bytes32("p4"));
         assertEq(wallets[3], p4);
     }
+
+    function test_goLiveRequiresEnoughParticipants() public {
+        _fund();
+        vm.startPrank(admin);
+        vault.registerParticipant("only1", p1);
+        vault.registerParticipant("only2", p2);
+        vm.expectRevert(PrizePoolVault.TooFewParticipants.selector);
+        vault.goLive();
+        // third player fills the podium — now it can start
+        vault.registerParticipant("only3", p3);
+        vault.goLive();
+        vm.stopPrank();
+        assertEq(uint8(vault.state()), uint8(PrizePoolVault.State.Live));
+    }
 }

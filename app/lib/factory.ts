@@ -1,6 +1,6 @@
 // Generated from contracts/out/ArcGGFactory.sol/ArcGGFactory.json — do not edit by hand.
 // TODO: paste the deployed factory address after running DeployFactory.s.sol
-export const FACTORY_ADDRESS = "0x578D07590Ec748a91d2f2b88dA701093f033BE70" as const;
+export const FACTORY_ADDRESS = "0xd01F9Fda58f6AecD303664E4f320152f077810c2" as const;
 
 export const factoryAbi = [
   {

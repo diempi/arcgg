@@ -897,6 +897,14 @@ function AdminPanel({
     functionName: "config",
     query: { staleTime: Infinity },
   });
+  const { data: roster } = useReadContract({
+    ...vault,
+    functionName: "participants",
+    query: { refetchInterval: 15000 },
+  });
+  const ranksNeeded = cfg ? cfg[3].length : 0;
+  const playersHave = roster ? roster[0].length : 0;
+  const rosterShort = playersHave < ranksNeeded;
 
   const [playerName, setPlayerName] = useState("");
   const [playerWallet, setPlayerWallet] = useState("");
@@ -967,10 +975,12 @@ function AdminPanel({
       {stateName === "Funded" && (
         <div className="mt-4 border-t border-edge pt-4">
           <p className="text-sm text-mut">
-            Pool fully funded. Lock the roster and start the tournament:
+            {rosterShort
+              ? `${playersHave}/${ranksNeeded} players registered — every paid rank needs a player before the tournament can start.`
+              : "Pool fully funded. Lock the roster and start the tournament:"}
           </p>
           <button
-            disabled={isPending || isLoading}
+            disabled={rosterShort || isPending || isLoading}
             onClick={() =>
               writeContract({
                 ...vault,
